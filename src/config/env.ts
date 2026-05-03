@@ -12,7 +12,17 @@ if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL no esta definida en las variables de entorno.");
 }
 
+// JWT Configuration
+const jwtSecret = process.env.JWT_SECRET;
+const jwtExpiresIn = process.env.JWT_EXPIRES_IN ?? "7d";
+
+if (!jwtSecret) {
+  console.warn("⚠️  Advertencia: JWT_SECRET no está definido. Usando valor por defecto (NO usar en producción).");
+}
+
 export const env = {
   port,
   databaseUrl: process.env.DATABASE_URL,
+  jwtSecret: jwtSecret ?? "default-insecure-secret-change-me",
+  jwtExpiresIn,
 };

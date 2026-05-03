@@ -7,10 +7,119 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  USER
+  ADMIN
+  SUPERADMIN
+}
+
+enum CourtType {
+  INDOOR
+  OUTDOOR
+  PANORAMICA
+  TECHADA
+}
+
+enum ReservationStatus {
+  PENDIENTE
+  CONFIRMADA
+  CANCELADA
+  COMPLETADA
+}
+
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String        @id @default(cuid())
+  nombre         String
+  email          String        @unique
+  password       String
+  rol            UserRole      @default(USER)
+  telefono       String?
+  activo         Boolean       @default(true)
+  reservas       Reserva[]
+  reviews        Review[]
+  complejosAdmin Complejo[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([rol])
+  @@map("users")
+}
+
+model Complejo {
+  id          String    @id @default(cuid())
+  nombre      String
+  direccion   String
+  barrio      String
+  descripcion String?
+  telefono    String?
+  email       String?
+  adminId     String
+  admin       User      @relation(fields: [adminId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  canchas     Cancha[]
+  reviews     Review[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([adminId])
+  @@index([barrio])
+  @@map("complejos")
+}
+
+model Cancha {
+  id             String    @id @default(cuid())
+  nombre         String
+  tipo           CourtType
+  precio         Decimal   @db.Decimal(10, 2)
+  descripcion    String?
+  techada        Boolean   @default(false)
+  iluminacion    Boolean   @default(false)
+  activa         Boolean   @default(true)
+  complejoId     String
+  complejo       Complejo  @relation(fields: [complejoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  reservas       Reserva[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([complejoId])
+  @@unique([complejoId, nombre])
+  @@map("canchas")
+}
+
+model Reserva {
+  id          String            @id @default(cuid())
+  fecha       DateTime          @db.Date
+  horaInicio  DateTime          @map("hora_inicio") @db.Time(0)
+  horaFin     DateTime          @map("hora_fin") @db.Time(0)
+  estado      ReservationStatus @default(PENDIENTE)
+  notas       String?
+  precioTotal Decimal           @db.Decimal(10, 2)
+  usuarioId   String
+  canchaId    String
+  usuario     User              @relation(fields: [usuarioId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  cancha      Cancha            @relation(fields: [canchaId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([usuarioId])
+  @@index([canchaId])
+  @@index([fecha, estado])
+  @@index([canchaId, fecha])
+  @@map("reservas")
+}
+
+model Review {
+  id         String    @id @default(cuid())
+  puntuacion Int
+  comentario String?
+  usuarioId  String
+  complejoId String
+  usuario    User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  complejo   Complejo  @relation(fields: [complejoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([usuarioId])
+  @@index([complejoId])
+  @@unique([usuarioId, complejoId])
+  @@map("reviews")
 }
