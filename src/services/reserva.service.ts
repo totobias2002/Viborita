@@ -1,11 +1,21 @@
-import { PrismaClient, Reserva, ReservationStatus } from "@prisma/client";
+import {
+  Prisma,
+  PrismaClient,
+  Reserva,
+  ReservationStatus,
+  UserRole,
+} from "@prisma/client";
+import { randomBytes } from "crypto";
 
 export interface CreateReservaDTO {
   fecha: Date;
   horaInicio: string; // Formato "HH:mm"
   horaFin: string; // Formato "HH:mm"
   canchaId: string;
-  usuarioId: string;
+  usuarioId?: string;
+  invitadoNombre?: string;
+  invitadoTelefono?: string;
+  invitadoEmail?: string;
   notas?: string;
 }
 
@@ -14,6 +24,24 @@ export interface UpdateReservaDTO {
   horaInicio?: string;
   horaFin?: string;
   notas?: string;
+}
+
+type ReservaWithRelations = Prisma.ReservaGetPayload<{
+  include: {
+    usuario: {
+      select: { id: true; nombre: true; email: true; telefono: true };
+    };
+    cancha: {
+      include: {
+        complejo: true;
+      };
+    };
+  };
+}>;
+
+interface ReservaActor {
+  userId: string;
+  userRole: string;
 }
 
 export class ReservaService {
@@ -41,9 +69,25 @@ export class ReservaService {
     });
   }
 
-  async findById(id: string): Promise<Reserva | null> {
+  async findById(id: string): Promise<ReservaWithRelations | null> {
     return this.prisma.reserva.findUnique({
       where: { id },
+      include: {
+        usuario: {
+          select: { id: true, nombre: true, email: true, telefono: true },
+        },
+        cancha: {
+          include: {
+            complejo: true,
+          },
+        },
+      },
+    });
+  }
+
+  async findGuestByToken(token: string): Promise<ReservaWithRelations | null> {
+    return this.prisma.reserva.findUnique({
+      where: { invitadoToken: token },
       include: {
         usuario: {
           select: { id: true, nombre: true, email: true, telefono: true },
@@ -126,17 +170,23 @@ export class ReservaService {
       data.horaFin
     );
 
+    const createData: Prisma.ReservaUncheckedCreateInput = {
+      fecha: data.fecha,
+      horaInicio,
+      horaFin,
+      precioTotal,
+      notas: data.notas,
+      invitadoNombre: data.invitadoNombre,
+      invitadoTelefono: data.invitadoTelefono,
+      invitadoEmail: data.invitadoEmail,
+      ...(data.usuarioId ? {} : { invitadoToken: this.generateGuestToken() }),
+      canchaId: data.canchaId,
+      estado: ReservationStatus.PENDIENTE,
+      ...(data.usuarioId ? { usuarioId: data.usuarioId } : {}),
+    };
+
     return this.prisma.reserva.create({
-      data: {
-        fecha: data.fecha,
-        horaInicio,
-        horaFin,
-        precioTotal,
-        notas: data.notas,
-        usuarioId: data.usuarioId,
-        canchaId: data.canchaId,
-        estado: ReservationStatus.PENDIENTE,
-      },
+      data: createData,
       include: {
         usuario: {
           select: { id: true, nombre: true, email: true },
@@ -155,13 +205,20 @@ export class ReservaService {
   async cancel(id: string, usuarioId: string): Promise<Reserva> {
     const reserva = await this.prisma.reserva.findUnique({
       where: { id },
+      include: {
+        cancha: {
+          include: {
+            complejo: true,
+          },
+        },
+      },
     });
 
     if (!reserva) {
       throw new Error("Reserva no encontrada");
     }
 
-    if (reserva.usuarioId !== usuarioId) {
+    if (!reserva.usuarioId || reserva.usuarioId !== usuarioId) {
       throw new Error("No tienes permiso para cancelar esta reserva");
     }
 
@@ -173,32 +230,93 @@ export class ReservaService {
       throw new Error("No puedes cancelar una reserva completada");
     }
 
+    this.assertCancellationAllowed(reserva);
+
     return this.prisma.reserva.update({
       where: { id },
       data: { estado: ReservationStatus.CANCELADA },
     });
   }
 
-  async update(id: string, data: UpdateReservaDTO): Promise<Reserva> {
+  async cancelGuestByToken(token: string): Promise<Reserva> {
     const reserva = await this.prisma.reserva.findUnique({
-      where: { id },
+      where: { invitadoToken: token },
+      include: {
+        cancha: {
+          include: {
+            complejo: true,
+          },
+        },
+      },
     });
 
     if (!reserva) {
       throw new Error("Reserva no encontrada");
     }
 
+    if (!reserva.invitadoToken) {
+      throw new Error("Esta reserva no admite cancelacion de invitado");
+    }
+
+    if (reserva.estado === ReservationStatus.CANCELADA) {
+      throw new Error("La reserva ya está cancelada");
+    }
+
+    if (reserva.estado === ReservationStatus.COMPLETADA) {
+      throw new Error("No puedes cancelar una reserva completada");
+    }
+
+    this.assertCancellationAllowed(reserva);
+
+    return this.prisma.reserva.update({
+      where: { id: reserva.id },
+      data: { estado: ReservationStatus.CANCELADA },
+    });
+  }
+
+  async update(
+    id: string,
+    data: UpdateReservaDTO,
+    actor: ReservaActor
+  ): Promise<Reserva> {
+    const reserva = await this.prisma.reserva.findUnique({
+      where: { id },
+      include: {
+        cancha: {
+          include: {
+            complejo: {
+              select: { adminId: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!reserva) {
+      throw new Error("Reserva no encontrada");
+    }
+
+    this.assertCanManageReserva(reserva, actor);
+
     if (reserva.estado !== ReservationStatus.PENDIENTE) {
       throw new Error("Solo puedes modificar reservas pendientes");
     }
 
-    // Si cambia horario, verificar conflicto
-    if (data.horaInicio || data.horaFin) {
+    const nextFecha = data.fecha ?? reserva.fecha;
+    const nextHoraInicio = data.horaInicio ?? this.formatTime(reserva.horaInicio);
+    const nextHoraFin = data.horaFin ?? this.formatTime(reserva.horaFin);
+    const changedSchedule = Boolean(data.fecha || data.horaInicio || data.horaFin);
+
+    if (!this.isEndTimeAfterStartTime(nextHoraInicio, nextHoraFin)) {
+      throw new Error("horaFin debe ser mayor a horaInicio");
+    }
+
+    if (changedSchedule) {
       const hasConflict = await this.checkConflict(
         reserva.canchaId,
-        data.fecha || reserva.fecha,
-        data.horaInicio || this.formatTime(reserva.horaInicio),
-        data.horaFin || this.formatTime(reserva.horaFin),
+        nextFecha,
+        nextHoraInicio,
+        nextHoraFin,
         id
       );
 
@@ -209,13 +327,18 @@ export class ReservaService {
 
     const updateData: any = { ...data };
 
-    if (data.horaInicio && data.horaFin) {
-      const [horaInicio, horaFin] = this.parseHours(
-        data.horaInicio,
-        data.horaFin
-      );
+    if (data.horaInicio || data.horaFin) {
+      const [horaInicio, horaFin] = this.parseHours(nextHoraInicio, nextHoraFin);
       updateData.horaInicio = horaInicio;
       updateData.horaFin = horaFin;
+    }
+
+    if (data.horaInicio || data.horaFin) {
+      updateData.precioTotal = this.calculatePrice(
+        Number(reserva.cancha.precio),
+        nextHoraInicio,
+        nextHoraFin
+      );
     }
 
     return this.prisma.reserva.update({
@@ -224,14 +347,60 @@ export class ReservaService {
     });
   }
 
-  async confirm(id: string): Promise<Reserva> {
+  async confirm(id: string, actor: ReservaActor): Promise<Reserva> {
+    const reserva = await this.prisma.reserva.findUnique({
+      where: { id },
+      include: {
+        cancha: {
+          include: {
+            complejo: {
+              select: { adminId: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!reserva) {
+      throw new Error("Reserva no encontrada");
+    }
+
+    this.assertCanAdminReserva(reserva, actor);
+
+    if (reserva.estado !== ReservationStatus.PENDIENTE) {
+      throw new Error("Solo puedes confirmar reservas pendientes");
+    }
+
     return this.prisma.reserva.update({
       where: { id },
       data: { estado: ReservationStatus.CONFIRMADA },
     });
   }
 
-  async complete(id: string): Promise<Reserva> {
+  async complete(id: string, actor: ReservaActor): Promise<Reserva> {
+    const reserva = await this.prisma.reserva.findUnique({
+      where: { id },
+      include: {
+        cancha: {
+          include: {
+            complejo: {
+              select: { adminId: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!reserva) {
+      throw new Error("Reserva no encontrada");
+    }
+
+    this.assertCanAdminReserva(reserva, actor);
+
+    if (reserva.estado !== ReservationStatus.CONFIRMADA) {
+      throw new Error("Solo puedes completar reservas confirmadas");
+    }
+
     return this.prisma.reserva.update({
       where: { id },
       data: { estado: ReservationStatus.COMPLETADA },
@@ -306,5 +475,108 @@ export class ReservaService {
       hfH - hiH + (hfM - hiM) / 60;
 
     return Number((precioPorHora * horas).toFixed(2));
+  }
+
+  private generateGuestToken(): string {
+    return randomBytes(24).toString("hex");
+  }
+
+  private assertCancellationAllowed(
+    reserva: Reserva & {
+      cancha: {
+        complejo: {
+          cancelacionLimiteHoras: number;
+          permiteCancelacionTardia: boolean;
+        };
+      };
+    }
+  ): void {
+    const { cancelacionLimiteHoras, permiteCancelacionTardia } =
+      reserva.cancha.complejo;
+
+    if (permiteCancelacionTardia) {
+      return;
+    }
+
+    const reservationStart = this.combineReservationDateTime(
+      reserva.fecha,
+      reserva.horaInicio
+    );
+    const limitDate = new Date(
+      reservationStart.getTime() - cancelacionLimiteHoras * 60 * 60 * 1000
+    );
+
+    if (new Date() > limitDate) {
+      throw new Error(
+        `La reserva solo puede cancelarse hasta ${cancelacionLimiteHoras} hora(s) antes del inicio`
+      );
+    }
+  }
+
+  private combineReservationDateTime(fecha: Date, hora: Date): Date {
+    const combined = new Date(fecha);
+    combined.setHours(
+      hora.getHours(),
+      hora.getMinutes(),
+      hora.getSeconds(),
+      hora.getMilliseconds()
+    );
+    return combined;
+  }
+
+  private isEndTimeAfterStartTime(
+    horaInicio: string,
+    horaFin: string
+  ): boolean {
+    return horaInicio < horaFin;
+  }
+
+  private assertCanManageReserva(
+    reserva: Reserva & {
+      cancha: {
+        precio: unknown;
+        complejo: { adminId: string };
+      };
+    },
+    actor: ReservaActor
+  ): void {
+    if (actor.userRole === UserRole.SUPERADMIN) {
+      return;
+    }
+
+    if (reserva.usuarioId === actor.userId) {
+      return;
+    }
+
+    if (
+      actor.userRole === UserRole.ADMIN &&
+      reserva.cancha.complejo.adminId === actor.userId
+    ) {
+      return;
+    }
+
+    throw new Error("No tienes permiso para modificar esta reserva");
+  }
+
+  private assertCanAdminReserva(
+    reserva: Reserva & {
+      cancha: {
+        complejo: { adminId: string };
+      };
+    },
+    actor: ReservaActor
+  ): void {
+    if (actor.userRole === UserRole.SUPERADMIN) {
+      return;
+    }
+
+    if (
+      actor.userRole === UserRole.ADMIN &&
+      reserva.cancha.complejo.adminId === actor.userId
+    ) {
+      return;
+    }
+
+    throw new Error("No tienes permiso para gestionar esta reserva");
   }
 }

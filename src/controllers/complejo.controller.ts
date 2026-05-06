@@ -47,13 +47,68 @@ export class ComplejoController {
     }
   }
 
+  async findNearby(req: Request, res: Response) {
+    try {
+      const latitude = Number(req.query.lat);
+      const longitude = Number(req.query.lng);
+      const radiusKm = req.query.radioKm
+        ? Number(req.query.radioKm)
+        : undefined;
+
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        res.status(400).json({
+          error: "lat y lng son requeridos y deben ser numeros validos",
+        });
+        return;
+      }
+
+      if (
+        radiusKm !== undefined &&
+        (!Number.isFinite(radiusKm) || radiusKm <= 0)
+      ) {
+        res.status(400).json({
+          error: "radioKm debe ser un numero mayor a 0",
+        });
+        return;
+      }
+
+      const complejos = await this.complejoService.findNearby({
+        latitude,
+        longitude,
+        radiusKm,
+      });
+
+      res.json(complejos);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
   async create(req: Request, res: Response) {
     try {
       const data = req.body as CreateComplejoDTO;
 
       if (!data.nombre || !data.direccion || !data.barrio || !data.adminId) {
         res.status(400).json({
-          error: "Nombre, dirección, barrio y adminId son requeridos",
+          error: "Nombre, direccion, barrio y adminId son requeridos",
+        });
+        return;
+      }
+
+      if (
+        data.cancelacionLimiteHoras !== undefined &&
+        (!Number.isInteger(data.cancelacionLimiteHoras) ||
+          data.cancelacionLimiteHoras < 0)
+      ) {
+        res.status(400).json({
+          error: "cancelacionLimiteHoras debe ser un entero mayor o igual a 0",
+        });
+        return;
+      }
+
+      if (!this.hasValidLocationPair(data.latitude, data.longitude)) {
+        res.status(400).json({
+          error: "latitude y longitude deben enviarse juntas como numeros validos",
         });
         return;
       }
@@ -69,6 +124,24 @@ export class ComplejoController {
     try {
       const id = String(req.params.id);
       const data = req.body as UpdateComplejoDTO;
+
+      if (
+        data.cancelacionLimiteHoras !== undefined &&
+        (!Number.isInteger(data.cancelacionLimiteHoras) ||
+          data.cancelacionLimiteHoras < 0)
+      ) {
+        res.status(400).json({
+          error: "cancelacionLimiteHoras debe ser un entero mayor o igual a 0",
+        });
+        return;
+      }
+
+      if (!this.hasValidLocationPair(data.latitude, data.longitude)) {
+        res.status(400).json({
+          error: "latitude y longitude deben enviarse juntas como numeros validos",
+        });
+        return;
+      }
 
       const complejo = await this.complejoService.update(id, data);
       res.json(complejo);
@@ -95,5 +168,23 @@ export class ComplejoController {
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
+  }
+
+  private hasValidLocationPair(
+    latitude?: number,
+    longitude?: number
+  ): boolean {
+    const hasLatitude = latitude !== undefined;
+    const hasLongitude = longitude !== undefined;
+
+    if (!hasLatitude && !hasLongitude) {
+      return true;
+    }
+
+    if (!hasLatitude || !hasLongitude) {
+      return false;
+    }
+
+    return Number.isFinite(latitude) && Number.isFinite(longitude);
   }
 }

@@ -46,22 +46,32 @@ model User {
 }
 
 model Complejo {
-  id          String    @id @default(cuid())
-  nombre      String
-  direccion   String
-  barrio      String
-  descripcion String?
-  telefono    String?
-  email       String?
-  adminId     String
-  admin       User      @relation(fields: [adminId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  canchas     Cancha[]
-  reviews     Review[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                        String    @id @default(cuid())
+  nombre                    String
+  direccion                 String
+  barrio                    String
+  ciudad                    String?
+  provincia                 String?
+  countryCode               String?   @map("country_code")
+  googlePlaceId             String?   @unique @map("google_place_id")
+  latitude                  Decimal?  @db.Decimal(10, 7)
+  longitude                 Decimal?  @db.Decimal(10, 7)
+  descripcion               String?
+  telefono                  String?
+  email                     String?
+  cancelacionLimiteHoras    Int       @default(1) @map("cancelacion_limite_horas")
+  permiteCancelacionTardia  Boolean   @default(false) @map("permite_cancelacion_tardia")
+  adminId                   String
+  admin                     User      @relation(fields: [adminId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  canchas                   Cancha[]
+  reviews                   Review[]
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
   @@index([adminId])
   @@index([barrio])
+  @@index([ciudad])
+  @@index([provincia])
   @@map("complejos")
 }
 
@@ -92,10 +102,14 @@ model Reserva {
   horaFin     DateTime          @map("hora_fin") @db.Time(0)
   estado      ReservationStatus @default(PENDIENTE)
   notas       String?
+  invitadoNombre   String?      @map("invitado_nombre")
+  invitadoTelefono String?      @map("invitado_telefono")
+  invitadoEmail    String?      @map("invitado_email")
+  invitadoToken    String?      @unique @map("invitado_token")
   precioTotal Decimal           @db.Decimal(10, 2)
-  usuarioId   String
+  usuarioId   String?
   canchaId    String
-  usuario     User              @relation(fields: [usuarioId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  usuario     User?             @relation(fields: [usuarioId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   cancha      Cancha            @relation(fields: [canchaId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
@@ -104,6 +118,7 @@ model Reserva {
   @@index([canchaId])
   @@index([fecha, estado])
   @@index([canchaId, fecha])
+  @@index([invitadoToken])
   @@map("reservas")
 }
 

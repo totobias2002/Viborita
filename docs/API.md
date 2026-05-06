@@ -1,653 +1,524 @@
-# 📘 Guía de API - Viborita
+# API Guide - Viborita
 
-> **Versión:** 1.0.0  
-> **Última actualización:** Abril 2026  
-> **Estado:** ✅ Activo
+> Version: 1.1.0
+> Last updated: 2026-05-04
+> Status: Active
 
----
+## Overview
 
-## 📋 Índice
+Viborita is a REST API for padel court reservations. It supports:
 
-1. [Introducción](#1-introducción)
-2. [Arquitectura](#2-arquitectura)
-3. [Autenticación](#3-autenticación)
-4. [Endpoints](#4-endpoints)
-5. [Modelos de Datos](#5-modelos-de-datos)
-6. [Códigos de Respuesta](#6-códigos-de-respuesta)
-7. [Errores Comunes](#7-errores-comunes)
+- User registration and login with JWT
+- Complex management
+- Court management
+- Reservation creation with availability checks
+- Guest checkout for reservations without mandatory login
+- Reservation lifecycle updates by owner or admins
 
----
+Base routes currently mounted in the app:
 
-## 1. Introducción
+- `GET /`
+- `GET /health/db`
+- `POST /auth/register`
+- `POST /auth/login`
+- `GET /auth/profile`
+- `POST /auth/change-password`
+- `GET /complejos`
+- `GET /complejos/cercanos`
+- `GET /complejos/barrio/:barrio`
+- `GET /complejos/:id`
+- `GET /complejos/admin/:adminId`
+- `POST /complejos`
+- `PUT /complejos/:id`
+- `DELETE /complejos/:id`
+- `GET /canchas`
+- `GET /canchas/complejo/:complejoId`
+- `GET /canchas/disponibles/:complejoId`
+- `GET /canchas/:id`
+- `POST /canchas`
+- `PUT /canchas/:id`
+- `DELETE /canchas/:id`
+- `GET /reservas`
+- `GET /reservas/guest/:token`
+- `GET /reservas/cancha/:canchaId`
+- `GET /reservas/mis-reservas`
+- `GET /reservas/:id`
+- `POST /reservas`
+- `PUT /reservas/:id`
+- `PATCH /reservas/guest/:token/cancelar`
+- `PATCH /reservas/:id/cancelar`
+- `PATCH /reservas/:id/confirmar`
+- `PATCH /reservas/:id/completar`
 
-### 1.1 Descripción del Proyecto
+## Auth
 
-Viborita es una API REST para la gestión de reservas de canchas de pádel. Permite a usuarios buscar complejos deportivos, visualizar canchas disponibles y realizar reservas.
-
-### 1.2 Características Principales
-
-- ✅ Registro y autenticación de usuarios
-- ✅ Gestión de complejos deportivos
-- ✅ Administración de canchas
-- ✅ Sistema de reservas con verificación de disponibilidad
-- ✅ Cálculo automático de precios
-
-### 1.3 Tecnologías
-
-| Tecnología | Propósito |
-|------------|-----------|
-| Express.js | Framework web |
-| Prisma | ORM para TypeScript |
-| PostgreSQL | Base de datos |
-| bcryptjs | Hash de contraseñas |
-| TypeScript | Tipado estático |
-
----
-
-## 2. Arquitectura
-
-### 2.1 Estructura de Archivos
-
-```
-src/
-├── config/
-│   ├── env.ts          # Variables de entorno
-│   └── prisma.ts       # Cliente Prisma
-├── controllers/
-│   ├── auth.controller.ts
-│   ├── complejo.controller.ts
-│   ├── cancha.controller.ts
-│   └── reserva.controller.ts
-├── services/
-│   ├── auth.service.ts
-│   ├── complejo.service.ts
-│   ├── cancha.service.ts
-│   └── reserva.service.ts
-├── routes/
-│   ├── index.ts        # Router principal
-│   ├── auth.routes.ts
-│   ├── complejo.routes.ts
-│   ├── cancha.routes.ts
-│   └── reserva.routes.ts
-└── middlewares/
-    ├── error-handler.middleware.ts
-    └── not-found.middleware.ts
-```
-
-### 2.2 Patrón de Diseño
-
-La API sigue el patrón **Service-Controller**:
-
-```
-Routes → Controller → Service → Prisma → Database
-```
-
-- **Routes**: Definición de endpoints HTTP
-- **Controller**: Lógica de request/response
-- **Service**: Lógica de negocio
-- **Prisma**: Acceso a datos
-
----
-
-## 3. Autenticación
-
-### 3.1 Flujo de Autenticación
-
-```
-┌──────────┐     ┌──────────┐     ┌──────────┐
-│  Usuario │────▶│   Login  │────▶│  Token   │
-└──────────┘     └──────────┘     └──────────┘
-```
-
-### 3.2 Headers Requeridos
-
-Para endpoints protegidos, incluir el token en el header:
+Protected endpoints require:
 
 ```http
 Authorization: Bearer <token>
 ```
 
-### 3.3 Roles de Usuario
+Roles in the system:
 
-| Rol | Descripción |
-|-----|-------------|
-| `USER` | Usuario estándar |
-| `ADMIN` | Administrador de complejo |
-| `SUPERADMIN` | Administrador global |
+- `USER`
+- `ADMIN`
+- `SUPERADMIN`
 
----
+### POST /auth/register
 
-## 4. Endpoints
+Body:
 
-### 4.1 Auth - Autenticación
-
-#### 📌 Registro de Usuario
-
-```http
-POST /api/auth/register
+```json
+{
+  "nombre": "Juan Perez",
+  "email": "juan@email.com",
+  "password": "secreto123",
+  "telefono": "+5491112345678"
+}
 ```
 
-| Campo | Tipo | Requerido | Descripción |
-|-------|------|-----------|--------------|
-| `nombre` | string | ✅ | Nombre completo |
-| `email` | string | ✅ | Correo electrónico |
-| `password` | string | ✅ | Contraseña (mín. 6 caracteres) |
-| `telefono` | string | ❌ | Teléfono de contacto |
-
-**Respuesta exitosa (201):**
+Response `201`:
 
 ```json
 {
   "user": {
-    "id": "cuid123...",
-    "nombre": "Juan Pérez",
+    "id": "cuid123",
+    "nombre": "Juan Perez",
     "email": "juan@email.com",
     "rol": "USER",
     "telefono": "+5491112345678",
-    "activo": true,
-    "createdAt": "2026-04-25T10:00:00Z"
+    "activo": true
   },
-  "token": "mock-token-cuid123..."
+  "token": "jwt-token"
 }
 ```
 
----
+### POST /auth/login
 
-#### 📌 Inicio de Sesión
-
-```http
-POST /api/auth/login
-```
-
-| Campo | Tipo | Requerido | Descripción |
-|-------|------|-----------|--------------|
-| `email` | string | ✅ | Correo electrónico |
-| `password` | string | ✅ | Contraseña |
-
-**Respuesta exitosa (200):**
+Body:
 
 ```json
 {
-  "user": { ... },
-  "token": "mock-token-cuid123..."
-}
-```
-
----
-
-#### 📌 Obtener Perfil
-
-```http
-GET /api/auth/profile
-```
-
-**Headers:** `Authorization: Bearer <token>`
-
-**Respuesta exitosa (200):**
-
-```json
-{
-  "id": "cuid123...",
-  "nombre": "Juan Pérez",
   "email": "juan@email.com",
-  "rol": "USER",
+  "password": "secreto123"
+}
+```
+
+### GET /auth/profile
+
+Returns the authenticated user profile.
+
+### POST /auth/change-password
+
+Body:
+
+```json
+{
+  "currentPassword": "secreto123",
+  "newPassword": "nuevo456"
+}
+```
+
+## Complejos
+
+### GET /complejos
+
+Lists all complexes.
+
+### GET /complejos/barrio/:barrio
+
+Filters complexes by neighborhood.
+
+### GET /complejos/cercanos
+
+Searches complexes ordered by distance from a point.
+
+Query params:
+
+- `lat` required
+- `lng` required
+- `radioKm` optional, default `10`
+
+Example:
+
+```http
+GET /complejos/cercanos?lat=-34.6507&lng=-58.6198&radioKm=10
+```
+
+Typical use case:
+
+- the frontend resolves a place like `Moron, Provincia de Buenos Aires, Argentina`
+- it gets coordinates from Google Places
+- then it asks Viborita for complexes near that point
+
+### GET /complejos/:id
+
+Returns one complex by id.
+
+### GET /complejos/admin/:adminId
+
+Protected. Returns complexes administered by the given user.
+
+### POST /complejos
+
+Protected. Requires `ADMIN` or `SUPERADMIN`.
+
+Body:
+
+```json
+{
+  "nombre": "Club Padel Central",
+  "direccion": "Av. Corrientes 1234",
+  "barrio": "Centro",
+  "ciudad": "Moron",
+  "provincia": "Provincia de Buenos Aires",
+  "countryCode": "AR",
+  "googlePlaceId": "ChIJ-demo-place-id",
+  "latitude": -34.6507,
+  "longitude": -58.6198,
+  "descripcion": "Complejo principal",
   "telefono": "+5491112345678",
-  "activo": true
+  "email": "contacto@club.com",
+  "cancelacionLimiteHoras": 1,
+  "permiteCancelacionTardia": false,
+  "adminId": "cuid-admin"
 }
 ```
 
----
+### PUT /complejos/:id
 
-### 4.2 Complejos - Gestión de Complejos
+Protected. Requires `ADMIN` or `SUPERADMIN`.
 
-#### 📌 Listar Todos
+Location fields for a production-ready search experience:
 
-```http
-GET /api/complejos
-```
+- `ciudad`
+- `provincia`
+- `countryCode`
+- `googlePlaceId`
+- `latitude`
+- `longitude`
 
-**Respuesta (200):**
+Cancellation policy fields:
 
-```json
-[
-  {
-    "id": "cuid...",
-    "nombre": "Club Pádel Central",
-    "direccion": "Av. Corrientes 1234",
-    "barrio": "Centro",
-    "descripcion": "El mejor club de pádel",
-    "telefono": "+5491112345678",
-    "email": "contacto@clubpadel.com",
-    "canchas": [...],
-    "_count": { "canchas": 4, "reviews": 12 }
-  }
-]
-```
+- `cancelacionLimiteHoras`: integer, default `1`
+- `permiteCancelacionTardia`: boolean, default `false`
 
----
+Recommended MVP behavior:
 
-#### 📌 Obtener por ID
+- the complex defines how many hours before the match a reservation can still be canceled
+- if `permiteCancelacionTardia` is `false`, online cancellation is blocked after that limit
+- if `permiteCancelacionTardia` is `true`, the system allows late cancellation and you can later attach penalties or deposit rules
 
-```http
-GET /api/complejos/:id
-```
+### DELETE /complejos/:id
 
-**Parámetros:**
+Protected. Requires `ADMIN` or `SUPERADMIN`.
 
-| Parámetro | Tipo | Descripción |
-|-----------|------|-------------|
-| `id` | string | ID del complejo |
+## Canchas
 
----
+### GET /canchas
 
-#### 📌 Buscar por Barrio
+Lists all courts.
 
-```http
-GET /api/complejos/barrio/:barrio
-```
+### GET /canchas/complejo/:complejoId
 
-**Ejemplo:** `/api/complejos/barrio/centro`
+Lists courts for one complex.
 
----
+### GET /canchas/disponibles/:complejoId
 
-#### 📌 Complejos de Admin
+Query params:
+
+- `fecha` required, format `YYYY-MM-DD`
+- `horaInicio` optional, format `HH:mm`
+- `horaFin` optional, format `HH:mm`
+
+Example:
 
 ```http
-GET /api/complejos/admin/:adminId
+GET /canchas/disponibles/cuid-complejo?fecha=2026-05-04&horaInicio=18:00&horaFin=19:30
 ```
 
----
+### GET /canchas/:id
 
-#### 📌 Crear Complejo
+Returns one court by id.
 
-```http
-POST /api/complejos
-```
+### POST /canchas
 
-| Campo | Tipo | Requerido | Descripción |
-|-------|------|-----------|--------------|
-| `nombre` | string | ✅ | Nombre del complejo |
-| `direccion` | string | ✅ | Dirección completa |
-| `barrio` | string | ✅ | Barrio/Zona |
-| `descripcion` | string | ❌ | Descripción del lugar |
-| `telefono` | string | ❌ | Teléfono de contacto |
-| `email` | string | ❌ | Correo electrónico |
-| `adminId` | string | ✅ | ID del usuario admin |
+Protected. Requires `ADMIN` or `SUPERADMIN`.
 
----
-
-#### 📌 Actualizar Complejo
-
-```http
-PUT /api/complejos/:id
-```
-
-**Body (al menos un campo):**
+Body:
 
 ```json
 {
-  "nombre": "Nuevo Nombre",
-  "direccion": "Nueva Dirección",
-  "barrio": "Nuevo Barrio",
-  "descripcion": "Nueva descripción",
-  "telefono": "+5490000000000",
-  "email": "nuevo@email.com"
+  "nombre": "Cancha 1",
+  "tipo": "PANORAMICA",
+  "precio": 1500,
+  "descripcion": "Cancha principal",
+  "techada": true,
+  "iluminacion": true,
+  "complejoId": "cuid-complejo"
 }
 ```
 
----
+### PUT /canchas/:id
 
-#### 📌 Eliminar Complejo
+Protected. Requires `ADMIN` or `SUPERADMIN`.
 
-```http
-DELETE /api/complejos/:id
-```
+### DELETE /canchas/:id
 
-**Respuesta:** `204 No Content`
+Protected. Requires `ADMIN` or `SUPERADMIN`.
 
----
+Note: delete is a soft delete. The court is marked with `activa: false`.
 
-### 4.3 Canchas - Gestión de Canchas
+## Reservas
 
-#### 📌 Listar Todas
+Reservation states:
 
-```http
-GET /api/canchas
-```
+- `PENDIENTE`
+- `CONFIRMADA`
+- `CANCELADA`
+- `COMPLETADA`
 
-**Respuesta (200):**
+### GET /reservas
 
-```json
-[
-  {
-    "id": "cuid...",
-    "nombre": "Cancha 1",
-    "tipo": "PANORAMICA",
-    "precio": "1500.00",
-    "descripcion": "Cancha principal",
-    "techada": true,
-    "iluminacion": true,
-    "activa": true,
-    "complejoId": "cuid...",
-    "complejo": {
-      "id": "cuid...",
-      "nombre": "Club Pádel Central",
-      "direccion": "Av. Corrientes 1234",
-      "barrio": "Centro"
-    }
-  }
-]
-```
+Lists all reservations.
 
----
+### GET /reservas/:id
 
-#### 📌 Obtener por ID
+Returns one reservation by id.
 
-```http
-GET /api/canchas/:id
-```
+### GET /reservas/mis-reservas
 
----
+Protected. Returns reservations for the authenticated user.
 
-#### 📌 Canchas por Complejo
+### GET /reservas/cancha/:canchaId
 
-```http
-GET /api/canchas/complejo/:complejoId
-```
+Optional query param:
 
----
+- `fecha` with format `YYYY-MM-DD`
 
-#### 📌 Canchas Disponibles
+### POST /reservas
 
-```http
-GET /api/canchas/disponibles/:complejoId?fecha=2026-04-26&horaInicio=14:00&horaFin=16:00
-```
+Public. If the request includes a valid `Authorization: Bearer <token>`, the reservation is associated with that user.
+If there is no session, the reservation can still be created as a guest checkout.
 
-**Query Parameters:**
-
-| Parámetro | Tipo | Requerido | Descripción |
-|-----------|------|-----------|--------------|
-| `fecha` | string | ✅ | Fecha en formato ISO (YYYY-MM-DD) |
-| `horaInicio` | string | ❌ | Hora de inicio (HH:mm) |
-| `horaFin` | string | ❌ | Hora de fin (HH:mm) |
-
----
-
-#### 📌 Crear Cancha
-
-```http
-POST /api/canchas
-```
-
-| Campo | Tipo | Requerido | Descripción |
-|-------|------|-----------|--------------|
-| `nombre` | string | ✅ | Nombre de la cancha |
-| `tipo` | enum | ✅ | Tipo de cancha |
-| `precio` | number | ✅ | Precio por hora |
-| `descripcion` | string | ❌ | Descripción |
-| `techada` | boolean | ❌ | Si tiene techo |
-| `iluminacion` | boolean | ❌ | Si tiene iluminación |
-| `complejoId` | string | ✅ | ID del complejo |
-
-**Tipos de Cancha:**
-
-```typescript
-type CourtType = "INDOOR" | "OUTDOOR" | "PANORAMICA" | "TECHADA";
-```
-
----
-
-#### 📌 Actualizar Cancha
-
-```http
-PUT /api/canchas/:id
-```
-
----
-
-#### 📌 Eliminar Cancha
-
-```http
-DELETE /api/canchas/:id
-```
-
-> **Nota:** Se realiza un soft delete (campo `activa: false`)
-
----
-
-### 4.4 Reservas - Gestión de Reservas
-
-#### 📌 Listar Todas
-
-```http
-GET /api/reservas
-```
-
----
-
-#### 📌 Obtener por ID
-
-```http
-GET /api/reservas/:id
-```
-
----
-
-#### 📌 Mis Reservas
-
-```http
-GET /api/reservas/mis-reservas
-```
-
-**Headers:** `Authorization: Bearer <token>`
-
----
-
-#### 📌 Reservas por Cancha
-
-```http
-GET /api/reservas/cancha/:canchaId?fecha=2026-04-26
-```
-
----
-
-#### 📌 Crear Reserva
-
-```http
-POST /api/reservas
-```
-
-**Headers:** `Authorization: Bearer <token>`
-
-| Campo | Tipo | Requerido | Descripción |
-|-------|------|-----------|--------------|
-| `fecha` | string | ✅ | Fecha (YYYY-MM-DD) |
-| `horaInicio` | string | ✅ | Hora inicio (HH:mm) |
-| `horaFin` | string | ✅ | Hora fin (HH:mm) |
-| `canchaId` | string | ✅ | ID de la cancha |
-| `notas` | string | ❌ | Notas adicionales |
-
-**Estados de Reserva:**
-
-```typescript
-type ReservationStatus = "PENDIENTE" | "CONFIRMADA" | "CANCELADA" | "COMPLETADA";
-```
-
-**Ejemplo:**
+Body:
 
 ```json
 {
-  "fecha": "2026-04-26",
-  "horaInicio": "14:00",
-  "horaFin": "16:00",
-  "canchaId": "cuid...",
-  "notas": "Jugadores: Juan, Pedro"
+  "fecha": "2026-05-04",
+  "horaInicio": "18:00",
+  "horaFin": "19:30",
+  "canchaId": "cuid-cancha",
+  "invitadoNombre": "Juan Perez",
+  "invitadoTelefono": "+5491112345678",
+  "invitadoEmail": "juan@email.com",
+  "notas": "Partido amistoso"
 }
 ```
 
-**Respuesta:**
+Rules:
+
+- `fecha`, `horaInicio`, `horaFin` and `canchaId` are required
+- time format must be `HH:mm`
+- `horaFin` must be greater than `horaInicio`
+- the selected court must be active
+- overlapping `PENDIENTE` or `CONFIRMADA` reservations are rejected
+- `precioTotal` is calculated automatically from court price and duration
+- if the user is not authenticated, `invitadoNombre` and `invitadoTelefono` are required
+- `invitadoEmail` is optional but must have valid format if sent
+
+Guest checkout example:
 
 ```json
 {
-  "id": "cuid...",
-  "fecha": "2026-04-26T00:00:00.000Z",
-  "horaInicio": "2026-04-25T14:00:00.000Z",
-  "horaFin": "2026-04-25T16:00:00.000Z",
-  "estado": "PENDIENTE",
-  "notas": "Jugadores: Juan, Pedro",
-  "precioTotal": 3000,
-  "usuarioId": "cuid...",
-  "canchaId": "cuid...",
-  "usuario": { "id": "...", "nombre": "Juan", "email": "..." },
-  "cancha": { "id": "...", "nombre": "Cancha 1", "complejo": { "nombre": "..." } }
+  "fecha": "2026-05-04",
+  "horaInicio": "20:00",
+  "horaFin": "21:30",
+  "canchaId": "cuid-cancha",
+  "invitadoNombre": "Juan Perez",
+  "invitadoTelefono": "+5491112345678",
+  "notas": "Primera vez usando Viborita"
 }
 ```
 
----
+Guest checkout response notes:
 
-#### 📌 Actualizar Reserva
+- guest reservations include `invitadoToken`
+- that token can be used later to view or cancel the reservation without login
 
-```http
-PUT /api/reservas/:id
+### GET /reservas/guest/:token
+
+Public.
+
+Returns a guest reservation using its unique token.
+
+Typical use case:
+
+- show reservation details from a link sent by WhatsApp or email
+- let the guest review date, court, complex and status without creating an account
+
+### PUT /reservas/:id
+
+Protected.
+
+Rules:
+
+- only `PENDIENTE` reservations can be updated
+- the reservation owner can update it
+- the admin of the complex that owns the court can also update it
+- `SUPERADMIN` can update any reservation
+- if date or time changes, availability is checked again
+- if only one time value is sent, the other one is taken from the existing reservation
+- the resulting range must still have `horaFin > horaInicio`
+- if the time range changes, `precioTotal` is recalculated
+
+Example partial update body:
+
+```json
+{
+  "fecha": "2026-05-05",
+  "horaInicio": "19:00"
+}
 ```
 
----
+### PATCH /reservas/:id/cancelar
 
-#### 📌 Cancelar Reserva
+Protected.
 
-```http
-PATCH /api/reservas/:id/cancelar
-```
+Rules:
 
-**Headers:** `Authorization: Bearer <token>`
+- only the reservation owner can cancel it
+- guest reservations cannot be canceled from this endpoint because they are not linked to an authenticated user
+- a completed reservation cannot be canceled
+- if the complex blocks late cancellation, the reservation can only be canceled before the configured limit
 
-> **Restricciones:** Solo el usuario que creó la reserva puede cancelarla.
+### PATCH /reservas/guest/:token/cancelar
 
----
+Public.
 
-#### 📌 Confirmar Reserva (Admin)
+Rules:
 
-```http
-PATCH /api/reservas/:id/confirmar
-```
+- only reservations created as guest checkout can be canceled here
+- the guest must have the correct `invitadoToken`
+- a completed reservation cannot be canceled
+- if the complex blocks late cancellation, the reservation can only be canceled before the configured limit
+- this is the natural endpoint to connect with a future cancellation policy or penalty flow
 
----
+### PATCH /reservas/:id/confirmar
 
-#### 📌 Completar Reserva
+Protected. Route access requires `ADMIN` or `SUPERADMIN`.
 
-```http
-PATCH /api/reservas/:id/completar
-```
+Business rules:
 
----
+- only `PENDIENTE` reservations can be confirmed
+- an `ADMIN` can only confirm reservations for courts in their own complex
+- `SUPERADMIN` can confirm any reservation
 
-## 5. Modelos de Datos
+### PATCH /reservas/:id/completar
 
-### 5.1 User
+Protected. Route access requires `ADMIN` or `SUPERADMIN`.
 
-| Campo | Tipo | Descripción |
-|-------|------|-------------|
-| `id` | string | ID único (CUID) |
-| `nombre` | string | Nombre completo |
-| `email` | string | Correo único |
-| `password` | string | Hash bcrypt |
-| `rol` | enum | USER, ADMIN, SUPERADMIN |
-| `telefono` | string | Teléfono |
-| `activo` | boolean | Estado |
-| `createdAt` | datetime | Fecha creación |
-| `updatedAt` | datetime | Fecha actualización |
+Business rules:
 
-### 5.2 Complejo
+- only `CONFIRMADA` reservations can be completed
+- an `ADMIN` can only complete reservations for courts in their own complex
+- `SUPERADMIN` can complete any reservation
 
-| Campo | Tipo | Descripción |
-|-------|------|-------------|
-| `id` | string | ID único |
-| `nombre` | string | Nombre |
-| `direccion` | string | Dirección |
-| `barrio` | string | Barrio |
-| `descripcion` | string | Descripción |
-| `telefono` | string | Teléfono |
-| `email` | string | Email |
-| `adminId` | string | FK a User |
+## Data Model Summary
 
-### 5.3 Cancha
+### User
 
-| Campo | Tipo | Descripción |
-|-------|------|-------------|
-| `id` | string | ID único |
-| `nombre` | string | Nombre |
-| `tipo` | enum | Tipo de cancha |
-| `precio` | decimal | Precio por hora |
-| `techada` | boolean | Tiene techo |
-| `iluminacion` | boolean | Tiene luz |
-| `activa` | boolean | Estado |
-| `complejoId` | string | FK a Complejo |
+- `id`
+- `nombre`
+- `email`
+- `password`
+- `rol`
+- `telefono`
+- `activo`
+- `createdAt`
+- `updatedAt`
 
-### 5.4 Reserva
+### Complejo
 
-| Campo | Tipo | Descripción |
-|-------|------|-------------|
-| `id` | string | ID único |
-| `fecha` | date | Fecha reserva |
-| `horaInicio` | time | Hora inicio |
-| `horaFin` | time | Hora fin |
-| `estado` | enum | Estado reserva |
-| `notas` | string | Notas |
-| `precioTotal` | decimal | Precio total |
-| `usuarioId` | string | FK a User |
-| `canchaId` | string | FK a Cancha |
+- `id`
+- `nombre`
+- `direccion`
+- `barrio`
+- `ciudad`
+- `provincia`
+- `countryCode`
+- `googlePlaceId`
+- `latitude`
+- `longitude`
+- `descripcion`
+- `telefono`
+- `email`
+- `cancelacionLimiteHoras`
+- `permiteCancelacionTardia`
+- `adminId`
 
----
+### Cancha
 
-## 6. Códigos de Respuesta
+- `id`
+- `nombre`
+- `tipo`
+- `precio`
+- `descripcion`
+- `techada`
+- `iluminacion`
+- `activa`
+- `complejoId`
 
-| Código | Significado | Descripción |
-|--------|--------------|--------------|
-| `200` | OK | Solicitud exitosa |
-| `201` | Created | Recurso creado |
-| `204` | No Content | Sin contenido |
-| `400` | Bad Request | Datos inválidos |
-| `401` | Unauthorized | No autenticado |
-| `403` | Forbidden | No autorizado |
-| `404` | Not Found | Recurso no encontrado |
-| `500` | Internal Error | Error del servidor |
+### Reserva
 
----
+- `id`
+- `fecha`
+- `horaInicio`
+- `horaFin`
+- `estado`
+- `notas`
+- `invitadoNombre`
+- `invitadoTelefono`
+- `invitadoEmail`
+- `invitadoToken`
+- `precioTotal`
+- `usuarioId`
+- `canchaId`
 
-## 7. Errores Comunes
+## Common Status Codes
 
-### 7.1 Errores de Auth
+- `200` OK
+- `201` Created
+- `204` No Content
+- `400` Bad Request
+- `401` Unauthorized
+- `403` Forbidden
+- `404` Not Found
+- `500` Internal Server Error
 
-| Código | Mensaje | Solución |
-|--------|---------|----------|
-| 400 | "El email ya está registrado" | Usar otro email |
-| 401 | "Credenciales inválidas" | Verificar email/password |
-| 401 | "Usuario inactivo" | Contactar soporte |
+## Common Errors
 
-### 7.2 Errores de Reservas
+Auth:
 
-| Código | Mensaje | Solución |
-|--------|---------|----------|
-| 400 | "Cancha no disponible" | Verificar ID de cancha |
-| 400 | "La cancha ya está reservada en ese horario" | Elegir otro horario |
-| 400 | "Solo puedes modificar reservas pendientes" | No modificar confirmadas |
+- `"El email ya esta registrado"`
+- `"Credenciales invalidas"`
+- `"Usuario inactivo"`
 
-### 7.3 Errores de Complejos/Canchas
+Reservas:
 
-| Código | Mensaje | Solución |
-|--------|---------|----------|
-| 404 | "Complejo no encontrado" | Verificar ID |
-| 400 | "Ya existe una cancha con ese nombre" | Usar otro nombre |
+- `"Cancha no disponible"`
+- `"La cancha ya esta reservada en ese horario"`
+- `"Para reservar sin cuenta debes enviar invitadoNombre e invitadoTelefono"`
+- `"La reserva solo puede cancelarse hasta X hora(s) antes del inicio"`
+- `"Solo puedes modificar reservas pendientes"`
+- `"Solo puedes confirmar reservas pendientes"`
+- `"Solo puedes completar reservas confirmadas"`
+- `"horaFin debe ser mayor a horaInicio"`
+- `"No tienes permiso para modificar esta reserva"`
+- `"No tienes permiso para gestionar esta reserva"`
 
----
+General notes:
 
-## 📌 Notas Adicionales
-
-- Los horarios se manejan en formato **24 horas** (HH:mm)
-- El precio total se calcula automáticamente: `precio × horas`
-- Las canchas eliminadas no se borran, se marcan como inactivas
-- Todas las fechas en formato ISO 8601
-
----
-
-*Documento generado automáticamente para Viborita API*
+- time format is 24-hour `HH:mm`
+- dates are handled as ISO values
+- generated docs should be updated when routes or permissions change
