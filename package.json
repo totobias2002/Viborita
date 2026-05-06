@@ -6,7 +6,9 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:web": "npm --prefix web run dev",
     "build": "tsc -p tsconfig.json",
+    "build:web": "npm --prefix web run build",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",

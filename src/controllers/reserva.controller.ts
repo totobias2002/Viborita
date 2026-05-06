@@ -38,6 +38,22 @@ export class ReservaController {
     }
   }
 
+  async findGuestByToken(req: Request, res: Response) {
+    try {
+      const token = String(req.params.token);
+      const reserva = await this.reservaService.findGuestByToken(token);
+
+      if (!reserva) {
+        res.status(404).json({ error: "Reserva no encontrada" });
+        return;
+      }
+
+      res.json(reserva);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
   async findByUser(req: AuthRequest, res: Response) {
     try {
       const userId = req.user?.id;
@@ -84,12 +100,6 @@ export class ReservaController {
   async create(req: AuthRequest, res: Response) {
     try {
       const userId = req.user?.id;
-
-      if (!userId) {
-        res.status(401).json({ error: "No autorizado" });
-        return;
-      }
-
       const data = req.body as CreateReservaDTO;
 
       if (!data.fecha || !data.horaInicio || !data.horaFin || !data.canchaId) {
@@ -116,10 +126,32 @@ export class ReservaController {
         return;
       }
 
+      const invitadoNombre = this.normalizeOptionalText(data.invitadoNombre);
+      const invitadoTelefono = this.normalizeOptionalText(data.invitadoTelefono);
+      const invitadoEmail = this.normalizeOptionalText(data.invitadoEmail);
+
+      if (!userId && (!invitadoNombre || !invitadoTelefono)) {
+        res.status(400).json({
+          error:
+            "Para reservar sin cuenta debes enviar invitadoNombre e invitadoTelefono",
+        });
+        return;
+      }
+
+      if (invitadoEmail && !this.isValidEmail(invitadoEmail)) {
+        res.status(400).json({
+          error: "invitadoEmail debe tener un formato valido",
+        });
+        return;
+      }
+
       const reserva = await this.reservaService.create({
         ...data,
         fecha,
         usuarioId: userId,
+        invitadoNombre,
+        invitadoTelefono,
+        invitadoEmail,
       });
 
       res.status(201).json(reserva);
@@ -145,9 +177,27 @@ export class ReservaController {
     }
   }
 
+  async cancelGuest(req: Request, res: Response) {
+    try {
+      const token = String(req.params.token);
+      const reserva = await this.reservaService.cancelGuestByToken(token);
+      res.json(reserva);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
   async update(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
+      const userId = req.user?.id;
+      const userRole = req.user?.rol;
+
+      if (!userId || !userRole) {
+        res.status(401).json({ error: "No autorizado" });
+        return;
+      }
+
       const body = req.body as UpdateReservaDTO;
       const data: UpdateReservaDTO = { ...body };
 
@@ -177,18 +227,10 @@ export class ReservaController {
         return;
       }
 
-      if (
-        horaInicio &&
-        horaFin &&
-        !this.isEndTimeAfterStartTime(horaInicio, horaFin)
-      ) {
-        res
-          .status(400)
-          .json({ error: "horaFin debe ser mayor a horaInicio" });
-        return;
-      }
-
-      const reserva = await this.reservaService.update(id as string, data);
+      const reserva = await this.reservaService.update(id as string, data, {
+        userId,
+        userRole,
+      });
       res.json(reserva);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -198,7 +240,18 @@ export class ReservaController {
   async confirm(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const reserva = await this.reservaService.confirm(id as string);
+      const userId = req.user?.id;
+      const userRole = req.user?.rol;
+
+      if (!userId || !userRole) {
+        res.status(401).json({ error: "No autorizado" });
+        return;
+      }
+
+      const reserva = await this.reservaService.confirm(id as string, {
+        userId,
+        userRole,
+      });
       res.json(reserva);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -208,7 +261,18 @@ export class ReservaController {
   async complete(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const reserva = await this.reservaService.complete(id as string);
+      const userId = req.user?.id;
+      const userRole = req.user?.rol;
+
+      if (!userId || !userRole) {
+        res.status(401).json({ error: "No autorizado" });
+        return;
+      }
+
+      const reserva = await this.reservaService.complete(id as string, {
+        userId,
+        userRole,
+      });
       res.json(reserva);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -242,5 +306,18 @@ export class ReservaController {
     horaFin: string
   ): boolean {
     return horaInicio < horaFin;
+  }
+
+  private normalizeOptionalText(value?: string): string | undefined {
+    if (typeof value !== "string") {
+      return undefined;
+    }
+
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private isValidEmail(email: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   }
 }

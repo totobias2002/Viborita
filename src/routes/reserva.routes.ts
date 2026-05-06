@@ -2,7 +2,11 @@ import { Router } from "express";
 import { ReservaController } from "../controllers/reserva.controller";
 import { ReservaService } from "../services/reserva.service";
 import { prisma } from "../config/prisma";
-import { authenticate, authorize } from "../middlewares/auth.middleware";
+import {
+  authenticate,
+  authorize,
+  optionalAuthenticate,
+} from "../middlewares/auth.middleware";
 
 const router = Router();
 
@@ -12,6 +16,10 @@ const reservaController = new ReservaController(reservaService);
 
 // Rutas publicas
 router.get("/", reservaController.findAll.bind(reservaController));
+router.get(
+  "/guest/:token",
+  reservaController.findGuestByToken.bind(reservaController)
+);
 router.get(
   "/cancha/:canchaId",
   reservaController.findByCancha.bind(reservaController)
@@ -23,11 +31,19 @@ router.get(
   authenticate,
   reservaController.findByUser.bind(reservaController)
 );
-router.post("/", authenticate, reservaController.create.bind(reservaController));
+router.post(
+  "/",
+  optionalAuthenticate,
+  reservaController.create.bind(reservaController)
+);
 router.put(
   "/:id",
   authenticate,
   reservaController.update.bind(reservaController)
+);
+router.patch(
+  "/guest/:token/cancelar",
+  reservaController.cancelGuest.bind(reservaController)
 );
 router.patch(
   "/:id/cancelar",

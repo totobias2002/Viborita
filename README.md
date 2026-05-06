@@ -57,3 +57,12 @@ npm run dev
 - `services`: contiene reglas de negocio y acceso a infraestructura.
 - `config`: centraliza entorno y clientes compartidos como Prisma.
 - `middlewares`: concentra manejo transversal de errores y 404.
+
+## Frontend web
+
+Se agrego una base de frontend en [web/](</c:/Users/toto/Desktop/facu/Viborita/web/README.md:1>) con `Next.js + TypeScript`.
+
+Scripts utiles desde la raiz:
+
+- `npm run dev:web`
+- `npm run build:web`
