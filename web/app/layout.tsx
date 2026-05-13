@@ -5,6 +5,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Viborita | Reservas para padel",
   description: "Reserva turnos de padel y gestiona complejos desde la web.",
+  icons: {
+    icon: "/viborita-logo.png",
+    shortcut: "/viborita-logo.png",
+    apple: "/viborita-logo.png",
+  },
 };
 
 export default function RootLayout({

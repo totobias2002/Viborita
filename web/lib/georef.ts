@@ -115,6 +115,13 @@ const scoreSuggestion = (item: GeoRefPlaceSuggestion, search: string) => {
   return 5;
 };
 
+const normalizePlaceKey = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
 const normalizeResults = (
   entities: GeoRefEntidad[],
   prefix: string
@@ -173,8 +180,23 @@ export const searchBuenosAiresPlaces = async (
   const unique = new Map<string, GeoRefPlaceSuggestion>();
 
   [...cabaBarrios, ...localidades, ...municipios].forEach((item) => {
-    const key = `${item.label.toLowerCase()}-${item.subtitle.toLowerCase()}`;
-    if (!unique.has(key)) {
+    const key = normalizePlaceKey(item.label);
+    const existing = unique.get(key);
+
+    if (!existing) {
+      unique.set(key, item);
+      return;
+    }
+
+    const existingScore = scoreSuggestion(existing, searchText);
+    const nextScore = scoreSuggestion(item, searchText);
+
+    if (nextScore < existingScore) {
+      unique.set(key, item);
+      return;
+    }
+
+    if (nextScore === existingScore && item.subtitle.length < existing.subtitle.length) {
       unique.set(key, item);
     }
   });
