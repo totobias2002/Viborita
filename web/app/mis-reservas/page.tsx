@@ -10,7 +10,7 @@ import {
   getMockMyReservas,
   isMockMode,
 } from "@/lib/mock";
-import { getStoredAuth } from "@/lib/state/auth";
+import { getStoredAuth, onAuthChanged } from "@/lib/state/auth";
 import { formatMoney } from "@/lib/utils";
 
 export default function MyReservationsPage() {
@@ -21,15 +21,21 @@ export default function MyReservationsPage() {
   const [loggedIn, setLoggedIn] = useState(false);
 
   useEffect(() => {
-    const auth = getStoredAuth();
-    setLoggedIn(Boolean(auth));
+    const syncAuth = () => {
+      const auth = getStoredAuth();
+      setLoggedIn(Boolean(auth));
 
-    if (!auth) {
-      setLoading(false);
-      return;
-    }
+      if (!auth) {
+        setReservas([]);
+        setLoading(false);
+        return;
+      }
 
-    void loadReservas();
+      void loadReservas();
+    };
+
+    syncAuth();
+    return onAuthChanged(syncAuth);
   }, []);
 
   async function loadReservas() {
@@ -78,7 +84,7 @@ export default function MyReservationsPage() {
     return (
       <main className="page">
         <div className="empty-state">
-          Necesitas iniciar sesion para ver tus reservas.{" "}
+          Inicia sesion para ver si tienes reservas registradas.{" "}
           <Link href="/login">Ir a login</Link>
         </div>
       </main>
@@ -111,36 +117,40 @@ export default function MyReservationsPage() {
       {error ? <p className="error-box">{error}</p> : null}
 
       {reservas.length === 0 ? (
-        <div className="empty-state">
-          Todavia no tenes reservas asociadas a tu cuenta.
-        </div>
+        <div className="empty-state">No tienes reservas registradas.</div>
       ) : (
-        <div className="reservation-grid">
-          {reservas.map((reserva) => (
-            <article key={reserva.id} className="card reservation-card">
-              <div className="row-meta">
-                <StatusBadge status={reserva.estado} />
-                <span className="tag">{reserva.cancha.complejo.nombre}</span>
-              </div>
-              <div>
-                <h3>{reserva.cancha.nombre}</h3>
-                <p>
-                  {reserva.fecha} - {reserva.horaInicio} a {reserva.horaFin}
-                </p>
-              </div>
-              <span className="price-pill">{formatMoney(reserva.precioTotal)}</span>
-              {reserva.estado === "PENDIENTE" ||
-              reserva.estado === "CONFIRMADA" ? (
-                <button
-                  className="ghost-button"
-                  onClick={() => void cancelReserva(reserva.id)}
-                >
-                  Cancelar
-                </button>
-              ) : null}
-            </article>
-          ))}
-        </div>
+        <>
+          <p className="success-box">
+            Si, tienes reservas registradas. Actualmente tienes {reservas.length}{" "}
+            {reservas.length === 1 ? "reserva cargada." : "reservas cargadas."}
+          </p>
+          <div className="reservation-grid">
+            {reservas.map((reserva) => (
+              <article key={reserva.id} className="card reservation-card">
+                <div className="row-meta">
+                  <StatusBadge status={reserva.estado} />
+                  <span className="tag">{reserva.cancha.complejo.nombre}</span>
+                </div>
+                <div>
+                  <h3>{reserva.cancha.nombre}</h3>
+                  <p>
+                    {reserva.fecha} - {reserva.horaInicio} a {reserva.horaFin}
+                  </p>
+                </div>
+                <span className="price-pill">{formatMoney(reserva.precioTotal)}</span>
+                {reserva.estado === "PENDIENTE" ||
+                reserva.estado === "CONFIRMADA" ? (
+                  <button
+                    className="ghost-button"
+                    onClick={() => void cancelReserva(reserva.id)}
+                  >
+                    Cancelar
+                  </button>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </>
       )}
     </main>
   );

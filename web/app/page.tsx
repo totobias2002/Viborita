@@ -1,41 +1,120 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { ComplexGrid } from "@/components/home/complex-grid";
+import { HeroSection } from "@/components/home/hero-section";
+import { SearchBar } from "@/components/home/search-bar";
+import { NoticeBanner } from "@/components/ui/notice-banner";
 import { createApiClient } from "@/lib/api/client";
 import type { ComplejoListItem } from "@/lib/api/viborita";
-import { getCancellationPolicyLabel } from "@/lib/api/viborita";
 import { searchBuenosAiresPlaces } from "@/lib/georef";
 import {
   type MockComplexSearchResult,
   type MockPlaceSuggestion,
   listMockComplejos,
   listMockPlaceSuggestions,
-  searchMockComplejosByCoordinates,
 } from "@/lib/mock";
 
 type SearchSuggestion = MockPlaceSuggestion;
 
-const formatDistance = (value?: number) => {
-  if (value === undefined) {
-    return null;
+function formatDateForInput(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getTodayDate() {
+  return formatDateForInput(new Date());
+}
+
+function getTomorrowDate() {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return formatDateForInput(tomorrow);
+}
+
+function getCurrentTime() {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function getNextValidTime(baseTime?: string) {
+  const source = baseTime ?? getCurrentTime();
+  const [hours, minutes] = source.split(":").map(Number);
+  const roundedMinutes = minutes <= 30 ? 30 : 60;
+  const nextDate = new Date();
+  nextDate.setHours(hours, 0, 0, 0);
+  nextDate.setMinutes(roundedMinutes);
+
+  if (roundedMinutes === 60) {
+    nextDate.setHours(hours + 1, 0, 0, 0);
   }
 
-  return value < 1 ? `${Math.round(value * 1000)} m` : `${value.toFixed(1)} km`;
-};
+  return `${String(nextDate.getHours()).padStart(2, "0")}:${String(
+    nextDate.getMinutes()
+  ).padStart(2, "0")}`;
+}
+
+function formatSelectedDate(value: string) {
+  if (!value) {
+    return "Elegir fecha";
+  }
+
+  if (value === getTodayDate()) {
+    return "Hoy";
+  }
+
+  if (value === getTomorrowDate()) {
+    return "Manana";
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+
+  return date.toLocaleDateString("es-AR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+  });
+}
+
+function buildTimeOptions(minTime?: string) {
+  const options: string[] = [];
+  const startHour = 8;
+  const endHour = 23;
+
+  for (let hour = startHour; hour <= endHour; hour += 1) {
+    for (const minute of [0, 30]) {
+      const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+
+      if (minTime && value < minTime) {
+        continue;
+      }
+
+      options.push(value);
+    }
+  }
+
+  return options;
+}
 
 export default function HomePage() {
   const api = useMemo(() => createApiClient(), []);
   const [searchText, setSearchText] = useState("");
-  const [selectedPlace, setSelectedPlace] = useState<SearchSuggestion | null>(null);
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
+  const [selectedDate, setSelectedDate] = useState(getTodayDate);
+  const [selectedTime, setSelectedTime] = useState("");
   const [complexes, setComplexes] = useState<
     Array<ComplejoListItem | MockComplexSearchResult>
   >([]);
   const [loading, setLoading] = useState(true);
   const [searchingPlaces, setSearchingPlaces] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchMode, setSearchMode] = useState<"default" | "nearby">("default");
+  const shouldShowSearchLoading =
+    searchingPlaces && searchText.trim().length >= 2 && suggestions.length === 0;
 
   useEffect(() => {
     void loadComplejos();
@@ -53,6 +132,21 @@ export default function HomePage() {
 
     return () => window.clearTimeout(timeoutId);
   }, [searchText]);
+
+  useEffect(() => {
+    const today = getTodayDate();
+    const currentTime = getCurrentTime();
+
+    if (selectedDate < today) {
+      setSelectedDate(today);
+      setSelectedTime("");
+      return;
+    }
+
+    if (selectedDate === today && selectedTime && selectedTime < currentTime) {
+      setSelectedTime("");
+    }
+  }, [selectedDate, selectedTime]);
 
   async function loadSuggestions(value: string) {
     setSearchingPlaces(true);
@@ -76,49 +170,42 @@ export default function HomePage() {
     setError(null);
 
     try {
-      if (selectedPlace) {
-        const data = await api.searchComplejosNearby({
-          lat: selectedPlace.lat,
-          lng: selectedPlace.lng,
-          radioKm: 10,
-        });
-        setComplexes(data);
-        setSearchMode("nearby");
-      } else {
-        const data = search
-          ? await api.searchComplejosByBarrio(search)
-          : await api.listComplejos();
-        setComplexes(data);
-        setSearchMode("default");
-      }
+      const data = search
+        ? await api.searchComplejosByBarrio(search)
+        : await api.listComplejos();
+      setComplexes(data);
     } catch {
-      if (selectedPlace) {
-        setComplexes(
-          searchMockComplejosByCoordinates(selectedPlace.lat, selectedPlace.lng)
-        );
-        setSearchMode("nearby");
-        setError("Modo fallback activo: complejos ordenados por cercania");
-      } else {
-        setComplexes(listMockComplejos(search));
-        setSearchMode("default");
-        setError("Modo fallback activo: mostrando complejos demo");
-      }
+      setComplexes(listMockComplejos(search));
+      setError("Modo fallback activo: mostrando complejos demo");
     } finally {
       setLoading(false);
     }
   }
 
   function handleSuggestionSelect(place: SearchSuggestion) {
-    setSelectedPlace(place);
     setSearchText(place.label);
     setSuggestions([]);
-    setLoading(true);
-    setComplexes(searchMockComplejosByCoordinates(place.lat, place.lng));
-    setSearchMode("nearby");
-    setLoading(false);
   }
 
   function handleSearch() {
+    if (!searchText.trim() || !selectedDate || !selectedTime) {
+      setError("Completa barrio, fecha y hora para buscar canchas.");
+      return;
+    }
+
+    const today = getTodayDate();
+    const currentTime = getCurrentTime();
+
+    if (selectedDate < today) {
+      setError("No puedes buscar con una fecha pasada.");
+      return;
+    }
+
+    if (selectedDate === today && selectedTime < currentTime) {
+      setError("No puedes buscar con una hora pasada para el dia de hoy.");
+      return;
+    }
+
     const directMatch = suggestions.find(
       (place) =>
         place.label.toLowerCase() === searchText.trim().toLowerCase() ||
@@ -128,83 +215,46 @@ export default function HomePage() {
 
     if (directMatch) {
       handleSuggestionSelect(directMatch);
-      return;
     }
 
-    if (selectedPlace) {
-      void loadComplejos(searchText.trim());
-      return;
-    }
-
+    setError(null);
+    setSuggestions([]);
     void loadComplejos(searchText.trim());
   }
 
+  const isSearchDisabled =
+    searchText.trim().length === 0 || selectedDate.length === 0 || selectedTime.length === 0;
+  const minTime =
+    selectedDate === getTodayDate() ? getNextValidTime(getCurrentTime()) : undefined;
+  const timeOptions = buildTimeOptions(minTime);
+  const selectedDateLabel = formatSelectedDate(selectedDate);
+  const tomorrowDate = getTomorrowDate();
+
   return (
     <main className="page">
-      <section className="hero">
-        <div className="hero-copy">
-          <p className="eyebrow">Padel first</p>
-          <h1>Reserva tu cancha de padel sin vueltas.</h1>
-          <p>
-            Viborita nace para complejos de padel que quieren vender turnos
-            online, ordenar cancelaciones y darle una experiencia rapida a sus
-            jugadores.
-          </p>
-          <div className="hero-actions">
-            <a href="#complejos" className="primary-button">
-              Ver complejos
-            </a>
-            <Link href="/register" className="ghost-button">
-              Crear cuenta
-            </Link>
-          </div>
-        </div>
-
-        <aside className="hero-panel">
-          <p className="eyebrow" style={{ color: "#d7ff68" }}>
-            Pensado para producto real
-          </p>
-          <div className="hero-stat">
-            <strong>Reserva en 3 pasos</strong>
-            <span>Elegis complejo, horario y cerras la reserva.</span>
-          </div>
-          <div className="hero-stat">
-            <strong>Politica clara</strong>
-            <span>Cada complejo muestra su ventana de cancelacion.</span>
-          </div>
-          <div className="hero-stat" style={{ borderBottom: "none" }}>
-            <strong>Invitados y usuarios</strong>
-            <span>Turnos con o sin cuenta para no perder conversion.</span>
-          </div>
-        </aside>
-      </section>
-
-      <section id="complejos">
-        <div className="section-header">
-          <div>
-            <h2>Complejos cargados</h2>
-            <p>Empeza con un nicho claro: canchas de padel y operacion simple.</p>
-          </div>
-        </div>
-
-        <p className="notice">
-          El buscador intenta traer localidades y municipios reales de Buenos Aires con GeoRef Argentina. Si el servicio no responde, cae al fallback demo.
-        </p>
-
-        <div className="card search-strip">
-          <div className="search-stack">
-            <input
-              placeholder="Busca barrio o zona"
-              value={searchText}
-              onChange={(event) => {
-                setSearchText(event.target.value);
-                setSelectedPlace(null);
-              }}
-            />
-
-            {searchingPlaces ? <div className="search-loading">Buscando ubicaciones...</div> : null}
-
-            {searchText.trim().length > 0 && suggestions.length > 0 ? (
+      <section className="hero-stage">
+        <HeroSection />
+        <SearchBar
+          searchText={searchText}
+          onSearchTextChange={setSearchText}
+          selectedDate={selectedDate}
+          onSelectedDateChange={setSelectedDate}
+          minDate={getTodayDate()}
+          tomorrowDate={tomorrowDate}
+          selectedDateLabel={selectedDateLabel}
+          minTime={minTime}
+          selectedTime={selectedTime}
+          onSelectedTimeChange={setSelectedTime}
+          timeOptions={timeOptions}
+          onSearch={handleSearch}
+          isSearchDisabled={isSearchDisabled}
+          loadingMessage={
+            shouldShowSearchLoading ? (
+              <div className="search-loading">Buscando ubicaciones...</div>
+            ) : null
+          }
+          suggestions={
+            searchText.trim().length > 0 && suggestions.length > 0 ? (
               <div className="search-suggestions">
                 {suggestions.map((place) => (
                   <button
@@ -217,65 +267,32 @@ export default function HomePage() {
                   </button>
                 ))}
               </div>
-            ) : null}
-          </div>
+            ) : null
+          }
+        />
+      </section>
 
-          <button className="primary-button" onClick={handleSearch}>
-            Buscar
-          </button>
+      <section id="complejos" className="complexes-section">
+        <div className="section-header">
+          <div>
+            <h2>Complejos cargados</h2>
+            <p>Busca por barrio, elige fecha y hora, y encuentra las canchas disponibles.</p>
+          </div>
         </div>
 
-        {selectedPlace ? (
-          <p className="notice">
-            Mostrando complejos a 10 km de <strong>{selectedPlace.label}</strong>
-            {" - "}
-            {selectedPlace.subtitle}, del mas cercano al mas lejano.
-          </p>
-        ) : null}
+        <NoticeBanner>
+          El buscador intenta traer localidades y municipios reales de Buenos Aires con GeoRef
+          Argentina. Si el servicio no responde, cae al fallback demo.
+        </NoticeBanner>
 
-        {selectedPlace && searchMode === "nearby" && complexes.length > 0 ? (
-          <p className="notice">
-            Si no hay complejos dentro de 10 km, te mostramos igual las opciones mas cercanas para no dejar vacia la busqueda.
-          </p>
-        ) : null}
-
-        {error ? <p className="error-box">{error}</p> : null}
+        {error ? <NoticeBanner variant="error">{error}</NoticeBanner> : null}
 
         {loading ? (
           <div className="empty-state">Cargando complejos...</div>
         ) : complexes.length === 0 ? (
           <div className="empty-state">No encontramos complejos para esa zona todavia.</div>
         ) : (
-          <div className="complex-grid" style={{ marginTop: "1rem" }}>
-            {complexes.map((complejo) => (
-              <article key={complejo.id} className="card complex-card">
-                <div>
-                  <p className="eyebrow">{complejo.barrio}</p>
-                  <h3>{complejo.nombre}</h3>
-                  <p>{complejo.direccion}</p>
-                </div>
-                <div className="complex-card__meta">
-                  <span className="tag">
-                    {complejo._count?.canchas || complejo.canchas?.length || 0} canchas
-                  </span>
-                  {"distanceKm" in complejo ? (
-                    <span className="tag">
-                      {formatDistance(complejo.distanceKm)} de tu busqueda
-                    </span>
-                  ) : null}
-                  <span className="tag">
-                    {getCancellationPolicyLabel(
-                      complejo.cancelacionLimiteHoras,
-                      complejo.permiteCancelacionTardia
-                    )}
-                  </span>
-                </div>
-                <Link href={`/complejos/${complejo.id}`} className="primary-button">
-                  Ver disponibilidad
-                </Link>
-              </article>
-            ))}
-          </div>
+          <ComplexGrid complexes={complexes} />
         )}
       </section>
     </main>

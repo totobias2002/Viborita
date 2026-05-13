@@ -458,11 +458,22 @@ export const listMockPlaceSuggestions = (search = "") => {
     return [];
   }
 
-  return mockPlaces.filter(
+  const matches = mockPlaces.filter(
     (place) =>
       place.label.toLowerCase().includes(normalized) ||
       place.subtitle.toLowerCase().includes(normalized)
   );
+
+  const unique = new Map<string, MockPlaceSuggestion>();
+
+  matches.forEach((place) => {
+    const key = place.label.toLowerCase();
+    if (!unique.has(key)) {
+      unique.set(key, place);
+    }
+  });
+
+  return Array.from(unique.values());
 };
 
 export const getMockPlaceById = (placeId: string) =>
